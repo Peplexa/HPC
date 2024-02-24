@@ -24,6 +24,38 @@ void overlayImagesParallel(std::vector<unsigned char>& baseImage, const std::vec
     }
 }
 
+void processImageTransformation(const std::vector<std::string>& args) {
+    if (args.size() < 5) {  // Ensure enough arguments for overlay transformation
+        std::cerr << "Insufficient arguments provided." << std::endl;
+        return;
+    }
+
+    std::string transformation = args[0];
+    std::string baseImageFilename = args[1];
+    std::string overlayImageFilename = args[2];
+    std::string outputFilename = args[3];
+    int posX = std::stoi(args[4]);
+    int posY = std::stoi(args[5]);
+    int width, height, overlayWidth, overlayHeight, maxval;
+    std::vector<unsigned char> baseImage, overlayImage;
+
+    // Load the base image
+    loadPPM(baseImageFilename, baseImage, width, height, maxval);
+
+    // Load the overlay image
+    loadPPM(overlayImageFilename, overlayImage, overlayWidth, overlayHeight, maxval);
+
+    if (transformation == "overlay") {
+        // Perform the overlay operation
+        overlayImagesParallel(baseImage, overlayImage, width, height, overlayWidth, overlayHeight, posX, posY);
+    } else {
+        std::cerr << "Unsupported transformation: " << transformation << std::endl;
+        return;
+    }
+    // Save the output image
+    savePPM(outputFilename, baseImage, width, height, maxval);
+}
+
 void loadPPM(const std::string& filename, std::vector<unsigned char>& image, int& width, int& height, int& maxval) {
     std::ifstream inputFile(filename, std::ios::binary);
     if (!inputFile.is_open()) {
