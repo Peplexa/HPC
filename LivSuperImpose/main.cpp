@@ -4,75 +4,57 @@
 #include <string>
 #include <omp.h>
 
-void loadPPM(const std::string& filename, unsigned char** image, int* width, int* height) {
-    std::ifstream file(filename, std::ios::binary);
-    if (!file) {
-        std::cerr << "Cannot open file: " << filename << std::endl;
-        exit(1);
-    }
+struct Pixel {
+    unsigned char r, g, b;
+};
 
-    std::string line;
-    getline(file, line);
-    getline(file, line); 
-    while (line[0] == '#') {
-        getline(file, line);
-    }
-    std::istringstream dimensions(line);
-
-    dimensions >> *width >> *height;
-
-    getline(file, line); // Max color value
-    *image = new unsigned char[(*width) * (*height) * 3];
-    file.read(reinterpret_cast<char*>(*image), (*width) * (*height) * 3);
-    file.close();
-}
-
-void savePPM(const std::string& filename, unsigned char* image, int width, int height) {
-    std::ofstream file(filename, std::ios::binary);
-    if (!file) {
-        std::cerr << "Cannot open file: " << filename << std::endl;
-        exit(1);
-    }
-
-    file << "P6\n" << width << " " << height << "\n255\n";
-    file.write(reinterpret_cast<char*>(image), width * height * 3);
-    file.close();
-}
-
-void overlayImagesParallel(const std::vector<std::string>& params) {
-    // Assuming params are: largeImagePath, smallImagePath, outputImagePath, startX, startY
-    std::string largeImagePath = params[0];
-    std::string smallImagePath = params[1];
-    std::string outputImagePath = params[2];
-    int startX = std::stoi(params[3]);
-    int startY = std::stoi(params[4]);
-
-    unsigned char *largeImage, *smallImage;
-    int largeWidth, largeHeight, smallWidth, smallHeight;
-
-    // Load the images
-    loadPPM(largeImagePath, &largeImage, &largeWidth, &largeHeight);
-    loadPPM(smallImagePath, &smallImage, &smallWidth, &smallHeight);
-
-    // Perform the overlay in parallel
+void overlayImagesParallel(std::vector<unsigned char>& baseImage, const std::vector<unsigned char>& overlayImage, int baseWidth, int baseHeight, int overlayWidth, int overlayHeight, int posX, int posY) {
     #pragma omp parallel for collapse(2)
-    for (int y = 0; y < smallHeight; ++y) {
-        for (int x = 0; x < smallWidth; ++x) {
-            if (y + startY < largeHeight && x + startX < largeWidth) {
-                int largeIdx = ((y + startY) * largeWidth + (x + startX)) * 3;
-                int smallIdx = (y * smallWidth + x) * 3;
-                for (int c = 0; c < 3; ++c) {
-                    largeImage[largeIdx + c] = smallImage[smallIdx + c];
-                }
+    for (int y = posY; y < posY + overlayHeight; ++y) {
+        for (int x = posX; x < posX + overlayWidth; ++x) {
+            if (x < baseWidth && y < baseHeight) {
+                int baseIdx = (y * baseWidth + x) * 3;
+                int overlayIdx = ((y - posY) * overlayWidth + (x - posX)) * 3;
+
+                baseImage[baseIdx] = overlayImage[overlayIdx];
+                baseImage[baseIdx + 1] = overlayImage[overlayIdx + 1];
+                baseImage[baseIdx + 2] = overlayImage[overlayIdx + 2];
             }
         }
     }
-
-    // Save the result
-    savePPM(outputImagePath, largeImage, largeWidth, largeHeight);
-
-    delete[] largeImage;
-    delete[] smallImage;
 }
 
+void loadPPM(const std::string& filename, std::vector<unsigned char>& image, int& width, int& height, int& maxval) {
+    std::ifstream inputFile(filename, std::ios::binary);
+    if (!inputFile.is_open()) {
+        std::cerr << "Error opening file: " << filename << std::endl;
+        exit(1);
+    }
 
+    std::string header;
+    inputFile >> header;
+    if (header != "P6") {
+        std::cerr << "Unsupported format or not a P6 PPM file." << std::endl;
+        inputFile.close();
+        exit(1);
+    }
+
+    inputFile >> width >> height >> maxval;
+    inputFile.ignore(std::numeric_limits<std::streamsize>::max(), '\n'); // Skip to the end of the header line
+
+    image.resize(width * height * 3);
+    inputFile.read(reinterpret_cast<char*>(image.data()), image.size());
+    inputFile.close();
+}
+
+void savePPM(const std::string& filename, const std::vector<unsigned char>& image, int width, int height, int maxval) {
+    std::ofstream outputFile(filename, std::ios::binary);
+    if (!outputFile.is_open()) {
+        std::cerr << "Error creating output file: " << filename << std::endl;
+        exit(1);
+    }
+
+    outputFile << "P6\n" << width << " " << height << "\n" << maxval << "\n";
+    outputFile.write(reinterpret_cast<const char*>(image.data()), image.size());
+    outputFile.close();
+}
