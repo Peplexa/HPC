@@ -8,6 +8,9 @@
 #include <atomic>
 #include <algorithm>
 #include <limits>
+#include <filesystem>
+namespace fs = std::filesystem;
+
 
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
@@ -170,7 +173,35 @@ void rotateImage(const std::vector<unsigned char>& sourceImage, std::vector<unsi
         thread.join();
     }
 }
+void resizeImage(const std::vector<unsigned char>& sourceImage, std::vector<unsigned char>& destImage, int originalWidth, int originalHeight, int newWidth, int newHeight) {
+    destImage.resize(newWidth * newHeight * 3);
+    double scaleX = (double)originalWidth / newWidth;
+    double scaleY = (double)originalHeight / newHeight;
 
+    for (int y = 0; y < newHeight; ++y) {
+        for (int x = 0; x < newWidth; ++x) {
+            int srcX = (int)(x * scaleX);
+            int srcY = (int)(y * scaleY);
+            Pixel p = getPixel(sourceImage, originalWidth, srcX, srcY);
+            int index = (y * newWidth + x) * 3;
+            destImage[index] = p.r;
+            destImage[index + 1] = p.g;
+            destImage[index + 2] = p.b;
+        }
+    }
+}
+void cropImage(const std::vector<unsigned char>& sourceImage, std::vector<unsigned char>& destImage, int originalWidth, int originalHeight, int startX, int startY, int newWidth, int newHeight) {
+    destImage.resize(newWidth * newHeight * 3);
+    for (int y = 0; y < newHeight; ++y) {
+        for (int x = 0; x < newWidth; ++x) {
+            Pixel p = getPixel(sourceImage, originalWidth, startX + x, startY + y);
+            int index = (y * newWidth + x) * 3;
+            destImage[index] = p.r;
+            destImage[index + 1] = p.g;
+            destImage[index + 2] = p.b;
+        }
+    }
+}
 void processImageTransformation(const std::vector<std::string>& args) {
     if (args.size() < 4) return; // Ensure basic argument validation
 
@@ -204,6 +235,20 @@ void processImageTransformation(const std::vector<std::string>& args) {
         rotateImage(imageData, destImage, width, height, angle, outputWidth, outputHeight);
         width = outputWidth; // Update width and height to match the output image's dimensions
         height = outputHeight;
+    } else if (transformation == "crop" && args.size() >= 7) {
+        int startX = std::stoi(args[3]);
+        int startY = std::stoi(args[4]);
+        int newWidth = std::stoi(args[5]);
+        int newHeight = std::stoi(args[6]);
+        cropImage(imageData, destImage, width, height, startX, startY, newWidth, newHeight);
+        width = newWidth; // Update width and height to match the cropped image's dimensions
+        height = newHeight;
+    } else if (transformation == "resize" && args.size() >= 5) {
+        int newWidth = std::stoi(args[3]);
+        int newHeight = std::stoi(args[4]);
+        resizeImage(imageData, destImage, width, height, newWidth, newHeight);
+        width = newWidth; // Update width and height to match the resized image's dimensions
+        height = newHeight;
     } else {
         std::cerr << "Unsupported transformation or insufficient arguments." << std::endl;
         return;
@@ -219,13 +264,32 @@ void processImageTransformation(const std::vector<std::string>& args) {
     outputFile.write(reinterpret_cast<const char*>(destImage.data()), destImage.size());
     outputFile.close();
 }
+void processAllPPMInFolder(const std::string& folderPath, const std::vector<std::string>& transformationArgs) {
+    for (const auto& entry : fs::directory_iterator(folderPath)) {
+        if (entry.is_regular_file() && entry.path().extension() == ".ppm") {
+            std::vector<std::string> args = transformationArgs;
+            std::string inputFilename = entry.path().string();
+            std::string outputFilename = inputFilename.substr(0, inputFilename.size() - 4) + "_processed.ppm";
+
+            // Modify args to include input and output filenames
+            args.insert(args.begin() + 1, outputFilename);
+            args.insert(args.begin() + 1, inputFilename);
+
+            processImageTransformation(args);
+        }
+    }
+}
 
 int main(int argc, char* argv[]) {
-    if (argc < 5) {
-        std::cerr << "Usage: " << argv[0] << " transformation inputFilename outputFilename [transformation parameters...]" << std::endl;
+    if (argc < 4) {
+        std::cerr << "Usage: " << argv[0] << " <folderPath> transformation [transformation parameters...]" << std::endl;
         return 1;
     }
-    std::vector<std::string> args(argv + 1, argv + argc);
-    processImageTransformation(args);
+
+    std::string folderPath = argv[1];
+    std::vector<std::string> args(argv + 2, argv + argc); // Exclude the folder path from args
+
+    processAllPPMInFolder(folderPath, args);
+
     return 0;
 }

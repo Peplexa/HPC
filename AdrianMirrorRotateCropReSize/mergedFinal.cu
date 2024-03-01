@@ -5,6 +5,9 @@
 #include <string>
 #include <cmath>
 #include <limits>
+#include <filesystem>
+
+namespace fs = std::filesystem;
 
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
@@ -13,7 +16,6 @@
 struct Pixel {
     unsigned char r, g, b;
 };
-
 __device__ Pixel getPixelCUDA(const unsigned char* imageData, int width, int x, int y) {
     int index = (y * width + x) * 3;
     return {imageData[index], imageData[index + 1], imageData[index + 2]};
@@ -119,6 +121,39 @@ void mirrorImageCUDA(std::vector<unsigned char>& imageData, int width, int heigh
     cudaFree(d_imageData);
 }
 
+// New CUDA Kernel for Resizing
+__global__ void resizeKernel(const unsigned char* srcImage, unsigned char* destImage, int srcWidth, int srcHeight, int destWidth, int destHeight) {
+    int x = blockIdx.x * blockDim.x + threadIdx.x;
+    int y = blockIdx.y * blockDim.y + threadIdx.y;
+
+    if (x >= destWidth || y >= destHeight) return;
+
+    float scaleX = float(srcWidth) / destWidth;
+    float scaleY = float(srcHeight) / destHeight;
+
+    float srcX = x * scaleX;
+    float srcY = y * scaleY;
+
+    Pixel pixel = bilinearInterpolate(srcImage, srcWidth, srcHeight, srcX, srcY);
+    setPixelCUDA(destImage, destWidth, x, y, pixel);
+}
+
+// New CUDA Kernel for Cropping
+__global__ void cropKernel(const unsigned char* srcImage, unsigned char* destImage, int srcWidth, int srcHeight, int startX, int startY, int cropWidth, int cropHeight) {
+    int x = blockIdx.x * blockDim.x + threadIdx.x;
+    int y = blockIdx.y * blockDim.y + threadIdx.y;
+
+    if (x >= cropWidth || y >= cropHeight) return;
+
+    int srcX = startX + x;
+    int srcY = startY + y;
+
+    if (srcX < srcWidth && srcY < srcHeight) {
+        Pixel pixel = getPixelCUDA(srcImage, srcWidth, srcX, srcY);
+        setPixelCUDA(destImage, cropWidth, x, y, pixel);
+    }
+}
+
 void calculateRotatedDimensions(int originalWidth, int originalHeight, double angle, int& outputWidth, int& outputHeight) {
     double rad = angle * (M_PI / 180.0);
     double sinAngle = sin(rad);
@@ -173,6 +208,78 @@ void rotateImageCUDA(const std::vector<unsigned char>& sourceImage, std::vector<
     cudaFree(d_destImage);
 }
 
+void resizeImageCUDA(const std::vector<unsigned char>& srcImage, std::vector<unsigned char>& destImage, int srcWidth, int srcHeight, int destWidth, int destHeight) {
+    // Allocate device memory for source and destination images
+    unsigned char *d_srcImage, *d_destImage;
+    size_t srcSize = srcWidth * srcHeight * sizeof(unsigned char) * 3;
+    size_t destSize = destWidth * destHeight * sizeof(unsigned char) * 3;
+    cudaMalloc(&d_srcImage, srcSize);
+    cudaMalloc(&d_destImage, destSize);
+
+    // Copy source image data to device
+    cudaMemcpy(d_srcImage, srcImage.data(), srcSize, cudaMemcpyHostToDevice);
+
+    // Calculate grid and block sizes
+    dim3 blockSize(16, 16);
+    dim3 gridSize((destWidth + blockSize.x - 1) / blockSize.x, (destHeight + blockSize.y - 1) / blockSize.y);
+
+    // Launch resize kernel
+    resizeKernel<<<gridSize, blockSize>>>(d_srcImage, d_destImage, srcWidth, srcHeight, destWidth, destHeight);
+
+    // Copy resized image data back to host
+    destImage.resize(destSize);
+    cudaMemcpy(destImage.data(), d_destImage, destSize, cudaMemcpyDeviceToHost);
+
+    // Free device memory
+    cudaFree(d_srcImage);
+    cudaFree(d_destImage);
+}
+
+void cropImageCUDA(const std::vector<unsigned char>& srcImage, std::vector<unsigned char>& destImage, int srcWidth, int srcHeight, int startX, int startY, int cropWidth, int cropHeight) {
+    // Calculate size of source and destination images
+    size_t srcSize = srcWidth * srcHeight * sizeof(unsigned char) * 3; // Assuming 3 channels (RGB)
+    size_t destSize = cropWidth * cropHeight * sizeof(unsigned char) * 3;
+
+    // Allocate memory on device
+    unsigned char *d_srcImage, *d_destImage;
+    cudaMalloc((void**)&d_srcImage, srcSize);
+    cudaMalloc((void**)&d_destImage, destSize);
+
+    // Copy source image to device
+    cudaMemcpy(d_srcImage, srcImage.data(), srcSize, cudaMemcpyHostToDevice);
+
+    // Calculate grid and block sizes
+    dim3 blockSize(16, 16);
+    dim3 gridSize((cropWidth + blockSize.x - 1) / blockSize.x, (cropHeight + blockSize.y - 1) / blockSize.y);
+
+    // Launch cropKernel
+    cropKernel<<<gridSize, blockSize>>>(d_srcImage, d_destImage, srcWidth, srcHeight, startX, startY, cropWidth, cropHeight);
+
+    // Copy destination image back to host
+    destImage.resize(destSize);
+    cudaMemcpy(destImage.data(), d_destImage, destSize, cudaMemcpyDeviceToHost);
+
+    // Free device memory
+    cudaFree(d_srcImage);
+    cudaFree(d_destImage);
+}
+void processAllPPMInFolderCUDA(const std::string& folderPath, const std::vector<std::string>& transformationArgs) {
+    for (const auto& entry : fs::directory_iterator(folderPath)) {
+        if (entry.is_regular_file() && entry.path().extension() == ".ppm") {
+            std::vector<std::string> args = transformationArgs;
+            std::string inputFilename = entry.path().string();
+            std::string outputFilename = inputFilename.substr(0, inputFilename.size() - 4) + "_processed.ppm";
+
+            // Insert input and output filenames into args
+            args.insert(args.begin() + 1, outputFilename);
+            args.insert(args.begin() + 1, inputFilename);
+
+            // Call a function to apply transformations based on args
+            applyTransformation(args);
+        }
+    }
+}
+
 void applyTransformation(const std::vector<std::string>& params) {
     if (params.size() < 3) {
         std::cerr << "Insufficient parameters provided." << std::endl;
@@ -225,6 +332,32 @@ void applyTransformation(const std::vector<std::string>& params) {
         imageData.swap(destImage); // Use rotated image for output
         width = outputWidth;
         height = outputHeight;
+    } else if (transformationType == "resize") {
+        if (params.size() < 5) {
+            std::cerr << "Resize dimensions not specified." << std::endl;
+            return;
+        }
+        int destWidth = std::stoi(params[3]);
+        int destHeight = std::stoi(params[4]);
+        std::vector<unsigned char> destImage;
+        resizeImageCUDA(imageData, destImage, width, height, destWidth, destHeight);
+        imageData.swap(destImage); // Use resized image for output
+        width = destWidth;
+        height = destHeight;
+    } else if (transformationType == "crop") {
+        if (params.size() < 7) {
+            std::cerr << "Crop parameters not specified." << std::endl;
+            return;
+        }
+        int startX = std::stoi(params[3]);
+        int startY = std::stoi(params[4]);
+        int cropWidth = std::stoi(params[5]);
+        int cropHeight = std::stoi(params[6]);
+        std::vector<unsigned char> destImage;
+        cropImageCUDA(imageData, destImage, width, height, startX, startY, cropWidth, cropHeight);
+        imageData.swap(destImage); // Use cropped image for output
+        width = cropWidth;
+        height = cropHeight;
     } else {
         std::cerr << "Unsupported transformation type." << std::endl;
         return;
@@ -236,6 +369,7 @@ void applyTransformation(const std::vector<std::string>& params) {
     outFile.write(reinterpret_cast<const char*>(imageData.data()), imageData.size());
     outFile.close();
 }
+
 
 int main() {
     // Example parameters for demonstration
