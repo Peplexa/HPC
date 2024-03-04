@@ -1,0 +1,10 @@
+nvcc -c GpuOperations.cu -o GpuOperations.o
+
+g++ -c main.cpp -o main.o
+
+g++ -c ParallelOperations.cpp -o ParallelOperations.o
+
+g++ main.o ParallelOperations.o GpuOperations.o -o your_program_name -L/usr/local/cuda/lib64 -lcudart -lpthread
+
+After copy pasting the file location of your_program_name into terminal and pressing enter, you can try this example command. Notice how the last string represents if it is using gpu.
+watermark input.ppm output_watermarked.ppm watermark.ppm 50 20 gpu
