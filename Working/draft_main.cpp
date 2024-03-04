@@ -11,65 +11,59 @@ extern void applyTransformation(const std::vector<std::string>& params);
 extern void processImageTransformation(const std::vector<std::string>& params);
 
 void ConvertJPEGtoPPM(const std::string& inputPath, const std::string& outputPath);
+
 void ConvertPPMtoJPEG(const std::string& inputPath, const std::string& outputPath, int quality = 75);
+namespace fs = std::filesystem;
 
 int main() {
-    std::string inputLine;
+    std::string inputJpgPath;
+    std::string outputPpmPath = "output.ppm"; // Default output PPM file path
+    std::string outputJpgPath = "output.jpg"; // Default output JPEG file path
     std::vector<std::string> params;
+
+    // Step 1: Take input JPEG
+    std::cout << "Enter the path to the input JPEG file: ";
+    std::getline(std::cin, inputJpgPath);
+
+    // Step 2: Convert JPEG to PPM
+    ConvertJPEGtoPPM(inputJpgPath, outputPpmPath);
+
+    // Step 3: Feed PPM information to the transformation program
+    // Example: mirror output.ppm output_transformed.ppm horizontal cpu
     std::string processorType;
-
-    std::cout << "Enter your command (e.g., input.jpg output.jpg mirror horizontal gpu): ";
-    std::getline(std::cin, inputLine);
-
+    std::cout << "Enter your command (e.g., mirror output.ppm output_transformed.ppm horizontal cpu): ";
+    std::string inputLine;
+    std::getline(std::cin, inputLine); // Read the entire line into inputLine
     std::istringstream iss(inputLine);
-    std::string param;
 
     // Split the line into words based on spaces
+    std::string param;
     while (iss >> param) {
         params.push_back(param);
     }
 
     if (!params.empty()) {
         processorType = params.back(); // Get the last word which should be "cpu" or "gpu"
-        params.pop_back(); // Remove the last element (processor type)
-
-        std::string inputFilePath = params.front();
-        params.erase(params.begin()); // Remove input file path from parameters
-
-        std::string outputFilePath = params.front();
-        params.erase(params.begin()); // Remove output file path from parameters
-
-        std::string extension = std::filesystem::path(inputFilePath).extension().string();
-
-        std::string ppmInputFile = "intermediate_input.ppm";
-        std::string ppmOutputFile = "intermediate_output.ppm";
-
-        // Convert input JPG to PPM if necessary
-        if (extension == ".jpg") {
-            ConvertJPEGtoPPM(inputFilePath, ppmInputFile);
-            inputFilePath = ppmInputFile; // Use the converted PPM file as input
-        }
-
-        // Add the PPM input file as the first parameter
-        params.insert(params.begin(), ppmOutputFile); // Output file path
-        params.insert(params.begin(), inputFilePath); // Input file path
-
-        if (processorType == "gpu") {
-            applyTransformation(params);
-        } else if (processorType == "cpu") {
-            processImageTransformation(params);
-        } else {
-            std::cout << "Error: Last parameter must be 'gpu' or 'cpu' to select the implementation." << std::endl;
-            return 1;
-        }
-
-        // Convert the output PPM file back to JPG if necessary
-        if (std::filesystem::path(outputFilePath).extension().string() == ".jpg") {
-            ConvertPPMtoJPEG(ppmOutputFile, outputFilePath, 75);
-        }
+        params.pop_back(); // Remove the last element as it's not part of the transformation parameters
     } else {
-        std::cout << "Error: No input provided." << std::endl;
+        std::cerr << "Error: No transformation command provided." << std::endl;
+        return 1;
     }
+
+    // Step 4: Program outputs .ppm transformation
+    if (processorType == "gpu") {
+        applyTransformation(params);
+    } else if (processorType == "cpu") {
+        processImageTransformation(params);
+    } else {
+        std::cerr << "Error: Last parameter must be 'gpu' or 'cpu' to select the implementation." << std::endl;
+        return 1;
+    }
+
+    // Step 5: Convert .ppm transformation back to JPEG
+    ConvertPPMtoJPEG(params[1], outputJpgPath);
+
+    std::cout << "Output JPEG file generated: " << outputJpgPath << std::endl;
 
     return 0;
 }
