@@ -277,44 +277,80 @@ void blendWatermarkSection(std::vector<unsigned char>& baseImage, const std::vec
         }
     }
 }
-
-// Main function to apply the watermark in parallel
-void superimposeWatermark(std::vector<unsigned char>& baseImage, int baseWidth, int baseHeight, const std::vector<unsigned char>& watermarkImage, int watermarkWidth, int watermarkHeight, float opacity) {
-    int startX = baseWidth - watermarkWidth;
-    int startY = baseHeight - watermarkHeight;
-    int numThreads = std::thread::hardware_concurrency();
-    std::vector<std::thread> threads;
-    int rowsPerThread = watermarkHeight / numThreads;
-    int remainingRows = watermarkHeight % numThreads; // Rows that don't evenly divide over threads
-
-    for (int i = 0; i < numThreads; ++i) {
-        int startRow = i * rowsPerThread;
-        int endRow = (i + 1) * rowsPerThread;
-
-        // Distribute remaining rows among the first few threads
-        if (i < remainingRows) {
-            startRow += i;
-            endRow += i + 1;
-        } else {
-            startRow += remainingRows;
-            endRow += remainingRows;
-        }
-
-        // Ensure we don't process past the end of the image
-        endRow = std::min(endRow, watermarkHeight);
-
-        // Start threads, ensuring each one has a unique section
-        threads.emplace_back(blendWatermarkSection, std::ref(baseImage), std::cref(watermarkImage), baseWidth, watermarkWidth, watermarkHeight, startX, startY, startRow, endRow, opacity);
+bool loadImage(const std::string& filename, std::vector<unsigned char>& imageData, int& width, int& height) {
+    std::ifstream inputFile(filename, std::ios::binary);
+    if (!inputFile.is_open()) {
+        std::cerr << "Error opening file: " << filename << std::endl;
+        return false;
     }
 
-    // Wait for all threads to finish
-    for (auto& thread : threads) {
-        thread.join();
+    std::string header;
+    int maxval;
+
+    // Read the header (P6), width, height, and maxval
+    inputFile >> header;
+    if (header != "P6") {
+        std::cerr << "Unsupported image format. Only binary PPM (P6) is supported." << std::endl;
+        return false;
+    }
+
+    inputFile >> width >> height >> maxval;
+    inputFile.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
+
+    // Validate image dimensions and maxval
+    if (width <= 0 || height <= 0) {
+        std::cerr << "Invalid image dimensions." << std::endl;
+        return false;
+    }
+    if (maxval <= 0 || maxval > 255) {
+        std::cerr << "Invalid max value. Must be in the range 1-255." << std::endl;
+        return false;
+    }
+
+    // Resize imageData vector and read pixel data
+    imageData.resize(width * height * 3);
+    inputFile.read(reinterpret_cast<char*>(imageData.data()), imageData.size());
+
+    if (!inputFile) {
+        std::cerr << "Error reading image data." << std::endl;
+        return false;
+    }
+
+    inputFile.close();
+    return true;
+}
+void superimposeWatermark(std::vector<unsigned char>& baseImage, int baseWidth, int baseHeight, const std::vector<unsigned char>& watermarkImage, int watermarkWidth, int watermarkHeight, float opacity) {
+    int startX = (baseWidth - watermarkWidth) / 2;  // Center the watermark
+    int startY = (baseHeight - watermarkHeight) / 2;
+
+    for (int y = 0; y < watermarkHeight; ++y) {
+        for (int x = 0; x < watermarkWidth; ++x) {
+            int baseIndex = ((startY + y) * baseWidth + (startX + x)) * 3;
+            int watermarkIndex = (y * watermarkWidth + x) * 3;
+
+            Pixel basePixel = {baseImage[baseIndex], baseImage[baseIndex + 1], baseImage[baseIndex + 2]};
+            Pixel watermarkPixel = {watermarkImage[watermarkIndex], watermarkImage[watermarkIndex + 1], watermarkImage[watermarkIndex + 2]};
+
+            // Apply blending based on opacity
+            Pixel blendedPixel;
+            blendedPixel.r = static_cast<unsigned char>((1 - opacity) * basePixel.r + opacity * watermarkPixel.r);
+            blendedPixel.g = static_cast<unsigned char>((1 - opacity) * basePixel.g + opacity * watermarkPixel.g);
+            blendedPixel.b = static_cast<unsigned char>((1 - opacity) * basePixel.b + opacity * watermarkPixel.b);
+
+            // Update the base image
+            baseImage[baseIndex] = blendedPixel.r;
+            baseImage[baseIndex + 1] = blendedPixel.g;
+            baseImage[baseIndex + 2] = blendedPixel.b;
+        }
     }
 }
 
 void processImageTransformation(const std::vector<std::string>& args) {
-
+    // Debug: Print received arguments
+    std::cout << "Received arguments:" << std::endl;
+    for (const auto& arg : args) {
+        std::cout << arg << std::endl;
+    }
     std::string transformation = args[0];
     std::string inputFilename = args[1];
     std::string outputFilename = args[2];
@@ -365,55 +401,28 @@ void processImageTransformation(const std::vector<std::string>& args) {
         convertToGreyscale(imageData, width, height, std::thread::hardware_concurrency());
         destImage = imageData; // Greyscale conversion modifies imageData in place
     }
-    else if (transformation == "watermark" && args.size() >= 6) {
-    std::string watermarkFilename = args[3];
-    float opacity = std::stof(args[4]) / 100.0f; // Convert percentage to decimal for opacity
-    float watermarkScale = std::stof(args[5]); // Percentage of base image's width for watermark's width
-    
-    std::cout << "Watermark Filename: " << watermarkFilename << std::endl;
-    std::cout << "Opacity (Decimal): " << opacity << std::endl;
-    std::cout << "Watermark Scale: " << watermarkScale << std::endl;
 
-    // Load watermark image
-    std::vector<unsigned char> watermarkImage;
-    int watermarkWidth, watermarkHeight, watermarkMaxval;
-    std::ifstream watermarkFile(watermarkFilename, std::ios::binary);
-    if (!watermarkFile.is_open()) {
-        std::cerr << "Error opening watermark file: " << watermarkFilename << std::endl;
+    else if (transformation == "watermark") {
+    if (args.size() < 5) {
+        std::cerr << "Insufficient arguments for watermark operation." << std::endl;
         return;
     }
-    std::string header;
-    watermarkFile >> header >> watermarkWidth >> watermarkHeight >> watermarkMaxval;
-    watermarkFile.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
-    watermarkImage.resize(watermarkWidth * watermarkHeight * 3);
-    watermarkFile.read(reinterpret_cast<char*>(watermarkImage.data()), watermarkImage.size());
-    watermarkFile.close();
 
-    std::cout << "Watermark Dimensions: " << watermarkWidth << "x" << watermarkHeight << std::endl;
-    std::cout << "Watermark Maxval: " << watermarkMaxval << std::endl;
+    std::string watermarkFilename = args[3];
+    float opacity = std::stof(args[4]) / 100.0f;  // Convert percentage to decimal for opacity
+    std::vector<unsigned char> watermarkImage;
+    int watermarkWidth, watermarkHeight;
 
-    // Calculate new watermark dimensions to maintain aspect ratio
-    int desiredWatermarkWidth = static_cast<int>(width * (watermarkScale / 100.0f)); // Convert scale to percentage
-    float aspectRatio = static_cast<float>(watermarkWidth) / static_cast<float>(watermarkHeight);
-    int desiredWatermarkHeight = static_cast<int>(desiredWatermarkWidth / aspectRatio);
+    // Load the watermark image
+    if (!loadImage(watermarkFilename, watermarkImage, watermarkWidth, watermarkHeight)) {
+        return;
+    }
 
-    std::cout << "Desired Watermark Dimensions: " << desiredWatermarkWidth << "x" << desiredWatermarkHeight << std::endl;
-    std::cout << "Aspect Ratio: " << aspectRatio << std::endl;
+    // Apply the watermark to the base image
+    superimposeWatermark(imageData, width, height, watermarkImage, watermarkWidth, watermarkHeight, opacity);
 
-    // Resize watermark image
-    std::vector<unsigned char> resizedWatermarkImage;
-    resizeImage(watermarkImage, resizedWatermarkImage, watermarkWidth, watermarkHeight, desiredWatermarkWidth, desiredWatermarkHeight);
-    watermarkWidth = desiredWatermarkWidth; // Update watermark dimensions to resized dimensions
-    watermarkHeight = desiredWatermarkHeight;
-
-    std::cout << "Resized Watermark Dimensions: " << watermarkWidth << "x" << watermarkHeight << std::endl;
-
-    // Superimpose watermark on the base image
-    superimposeWatermark(imageData, width, height, resizedWatermarkImage, watermarkWidth, watermarkHeight, opacity);
-    std::cout << "Superimposing Watermark completed." << std::endl;
-
-    destImage = imageData; // Update destImage with the watermarked image
-    std::cout << "Destination Image updated with watermark." << std::endl;
+    destImage = imageData;  // Update destImage with the watermarked image
+    std::cout << "Watermark applied successfully." << std::endl;
 }
 
     else {
