@@ -59,11 +59,10 @@ int main() {
         std::cerr << "Error: Last parameter must be 'gpu' or 'cpu' to select the implementation." << std::endl;
         return 1;
     }
+    std::string transformedPpmPath = "output_transformed.ppm"; // This should be the actual path to the mirrored image
 
-    // Step 5: Convert .ppm transformation back to JPEG
-    ConvertPPMtoJPEG(params[1], outputJpgPath);
-
+    // convert transformed .ppm file back to JPEG 
+    ConvertPPMtoJPEG(transformedPpmPath, outputJpgPath, 75);
     std::cout << "Output JPEG file generated: " << outputJpgPath << std::endl;
-
     return 0;
 }
