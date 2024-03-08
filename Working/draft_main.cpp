@@ -21,48 +21,58 @@ int main() {
     std::string outputJpgPath = "output.jpg"; // Default output JPEG file path
     std::vector<std::string> params;
 
-    // Step 1: Take input JPEG
+      // Step 1: Ask for the type of operation
+    std::cout << "Enter the type of operation (mirror, rotate, greyscale, watermark): ";
+    std::string operationType;
+    std::getline(std::cin, operationType);
+
+    // Step 2: Take input JPEG
     std::cout << "Enter the path to the input JPEG file: ";
     std::getline(std::cin, inputJpgPath);
 
-    // Step 2: Convert JPEG to PPM
+    // Step 3: Convert JPEG to PPM
     ConvertJPEGtoPPM(inputJpgPath, outputPpmPath);
 
-    // Step 3: Feed PPM information to the transformation program
-    // Example: mirror output.ppm output_transformed.ppm horizontal cpu
-    std::string processorType;
-    std::cout << "Enter your command (e.g., mirror output.ppm output_transformed.ppm horizontal cpu): ";
-    std::string inputLine;
-    std::getline(std::cin, inputLine); // Read the entire line into inputLine
-    std::istringstream iss(inputLine);
+    // Step 4: Get additional parameters based on the operation
+    if (operationType == "mirror") {
+        std::string direction;
+        std::cout << "Enter mirror direction (horizontal or vertical): ";
+        std::cin >> direction;
+        params = {operationType, outputPpmPath, "output_transformed.ppm", direction};
+    } else if (operationType == "rotate") {
+        std::string angle;
+        std::cout << "Enter rotation angle in degrees (e.g., 90): ";
+        std::cin >> angle;
+        params = {operationType, outputPpmPath, "output_transformed.ppm", angle};
+    } else if (operationType == "greyscale") {
+        params = {operationType, outputPpmPath, "output_transformed.ppm"};
+    } else if (operationType == "watermark") {
+    std::string watermarkPath, opacity;
+    std::cout << "Enter the path to the watermark image: ";
+    std::cin >> watermarkPath;
 
-    // Split the line into words based on spaces
-    std::string param;
-    while (iss >> param) {
-        params.push_back(param);
+    // Convert watermark image to PPM if it's not already in that format
+    std::string watermarkPpmPath = "watermark.ppm"; // Temporary PPM filename for watermark
+    if (watermarkPath.find(".jpg") != std::string::npos || watermarkPath.find(".jpeg") != std::string::npos) {
+        ConvertJPEGtoPPM(watermarkPath, watermarkPpmPath);
+        watermarkPath = watermarkPpmPath; // Use the converted PPM file as the watermark
     }
 
-    if (!params.empty()) {
-        processorType = params.back(); // Get the last word which should be "cpu" or "gpu"
-        params.pop_back(); // Remove the last element as it's not part of the transformation parameters
+    std::cout << "Enter the opacity for the watermark (0-100): ";
+    std::cin >> opacity;
+    params = {operationType, outputPpmPath, "output_transformed.ppm", watermarkPath, opacity};
     } else {
-        std::cerr << "Error: No transformation command provided." << std::endl;
+        std::cerr << "Unsupported operation type." << std::endl;
         return 1;
     }
 
-    // Step 4: Program outputs .ppm transformation
-    if (processorType == "gpu") {
-        applyTransformation(params);
-    } else if (processorType == "cpu") {
-        processImageTransformation(params);
-    } else {
-        std::cerr << "Error: Last parameter must be 'gpu' or 'cpu' to select the implementation." << std::endl;
-        return 1;
-    }
-    std::string transformedPpmPath = "output_transformed.ppm"; // This should be the actual path to the mirrored image
+    // Step 5: Apply the transformation
+    processImageTransformation(params);
 
-    // convert transformed .ppm file back to JPEG 
-    ConvertPPMtoJPEG(transformedPpmPath, outputJpgPath, 75);
+    // Step 6: Convert the transformed PPM back to JPEG
+    ConvertPPMtoJPEG("output_transformed.ppm", outputJpgPath, 75);
     std::cout << "Output JPEG file generated: " << outputJpgPath << std::endl;
+
     return 0;
 }
+  
