@@ -1,10 +1,12 @@
 nvcc -c GpuOperations.cu -o GpuOperations.o
 
-g++ -c main.cpp -o main.o
+FOR PARALLEL:
+Make sure all the files are under the same folder (including the images and video files)
 
-g++ -c ParallelOperations.cpp -o ParallelOperations.o
+g++ -std=c++17 -o image_processor main.cpp parallel.cpp  -I/opt/local/include -L/opt/local/lib -ljpeg
 
-g++ main.o ParallelOperations.o GpuOperations.o -o your_program_name -L/usr/local/cuda/lib64 -lcudart -lpthread
+./image_processor
 
-After copy pasting the file location of your_program_name into terminal and pressing enter, you can try this example command. Notice how the last string represents if it is using gpu.
-watermark input.ppm output_watermarked.ppm watermark.ppm 50 20 gpu
+
+
+
