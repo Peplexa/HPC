@@ -1,0 +1,8 @@
+Assuming you are using Ubuntu wsl and have opencv4, ffmpeg and libjpeg installed.
+nvcc -c -g GpuOperations.cu -o GpuOperations.o
+g++ -c -g ParallelOperations.cpp -o ParallelOperations.o
+g++ -c -g mainCV.cpp -o mainCV.o -I//wsl.localhost/Ubuntu/usr/include/opencv4 `pkg-config --libs --cflags opencv4`
+g++ -g mainCV.o ParallelOperations.o GpuOperations.o -o v1 -L//wsl.localhost/Ubuntu/usr/lib/x86_64-linux-gnu -L/usr/local/cuda/lib64 -lcudart `pkg-config --libs opencv4` -lpthread -ljpeg -lavcodec -lavformat -lavutil -lswscale
+
+After copy pasting the file location v1 into terminal and pressing enter, you can try this example command. Notice how the last string represents if it is using gpu.
+watermark input.ppm output_watermarked.ppm watermark.ppm 50 20 gpu
