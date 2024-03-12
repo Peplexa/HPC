@@ -25,14 +25,27 @@ void processAllPPMInFolder(const std::string& folderPath, const std::vector<std:
             args.insert(args.begin() + 1, outputFilename);
             args.insert(args.begin() + 1, inputFilename);
 
+            // Print args after modification but before applying transformation
+            std::cout << "Arguments before transformation: ";
+            for (const auto& arg : args) {
+                std::cout << arg << " ";
+            }
+            std::cout << std::endl;
+
             if (useGPU) {
                 applyTransformation(args);
             } else {
                 processImageTransformation(args);
             }
+
+            for (const auto& arg : args) {
+                std::cout << arg << " ";
+            }
+            std::cout << std::endl;
         }
     }
 }
+
 
 bool isVideoFile(const std::string& filename) {
     std::string extension = fs::path(filename).extension().string();
@@ -42,10 +55,12 @@ bool isVideoFile(const std::string& filename) {
 int main() {
     std::string inputLine;
     std::vector<std::string> params;
+    std::vector<std::string> paramsVideo;
     std::string param;
     
     while (true) {
         params.clear();
+        paramsVideo.clear();
         std::cout << "Enter your command, or help for help, or exit to exit: " << std::endl;
         std::cout << "->";
         std::getline(std::cin, inputLine);
@@ -83,6 +98,11 @@ int main() {
 
         while (iss >> param) {
             params.push_back(param);
+            if (param.find(".mp4") == std::string::npos &&
+                    param.find(".avi") == std::string::npos &&
+                    param.find(".mov") == std::string::npos) {
+                    paramsVideo.push_back(param);
+                }
         }
 
         if (!params.empty()) {
@@ -127,32 +147,17 @@ int main() {
 
                 // Process all PPM files in the "temp" folder and save the transformed files in the "transformed" folder
                 bool useGPU = (processorType == "gpu");
-                
-                if (params[0] == "rotate") {
-                    double angle = std::stod(params[3]);
-                    for (int i = 0; i < frameNumber; i++) {
-                        std::string inputFrameName = "temp/frame_" + std::to_string(i) + ".ppm";
-                        std::string outputFrameName = "transformed/frame_" + std::to_string(i) + "_processed.ppm";
-                        
-                        // Read the input frame
-                        cv::Mat inputFrame = cv::imread(inputFrameName);
-                        
-                        // Perform rotation using OpenCV
-                        cv::Mat outputFrame;
-                        cv::Point2f center(inputFrame.cols / 2.0, inputFrame.rows / 2.0);
-                        cv::Mat rotationMatrix = cv::getRotationMatrix2D(center, angle, 1.0);
-                        cv::warpAffine(inputFrame, outputFrame, rotationMatrix, inputFrame.size());
-                        
-                        // Save the rotated frame
-                        cv::imwrite(outputFrameName, outputFrame);
-                    }
-                } else {
-                    processAllPPMInFolder("temp", params, "transformed", useGPU);
-                }
+                processAllPPMInFolder("temp", paramsVideo, "transformed", useGPU);
+
+                // Get the dimensions of the first transformed frame
+                std::string firstTransformedFrameName = "transformed/frame_0_processed.ppm";
+                cv::Mat firstTransformedFrame = cv::imread(firstTransformedFrameName);
+                int outputWidth = firstTransformedFrame.cols;
+                int outputHeight = firstTransformedFrame.rows;
 
                 // Create the output video file
                 std::string outputFile = params[2];
-                cv::VideoWriter outputVideo(outputFile, cv::VideoWriter::fourcc('m', 'p', '4', 'v'), fps, cv::Size(frameWidth, frameHeight));
+                cv::VideoWriter outputVideo(outputFile, cv::VideoWriter::fourcc('m', 'p', '4', 'v'), fps, cv::Size(outputWidth, outputHeight));
 
                 // Write the transformed frames to the output video
                 for (int i = 0; i < frameNumber; i++) {
