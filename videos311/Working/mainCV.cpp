@@ -26,7 +26,8 @@ void processAllPPMInFolder(const std::string& folderPath, const std::vector<std:
             args.insert(args.begin() + 1, inputFilename);
 
             // Print args after modification but before applying transformation
-            std::cout << "Arguments before transformation: ";
+            //std::cout << "Arguments before transformation: ";
+            
             for (const auto& arg : args) {
                 std::cout << arg << " ";
             }
@@ -147,6 +148,21 @@ int main() {
 
                 // Process all PPM files in the "temp" folder and save the transformed files in the "transformed" folder
                 bool useGPU = (processorType == "gpu");
+                if (params.size() >= 6 && params[0] == "watermark") {
+                    std::string watermarkFile = params[3];
+                    cv::Mat watermarkImage = cv::imread(watermarkFile, cv::IMREAD_COLOR);
+
+                    if (watermarkImage.empty()) {
+                        std::cout << "Error: Failed to open watermark image file." << std::endl;
+                        continue;
+                    }/*
+                    for(const auto& param : paramsVideo) {
+    std::cout << param << std::endl;
+}*/
+
+                    paramsVideo[1] = "watermark.ppm";
+                    cv::imwrite("watermark.ppm", watermarkImage);
+                }
                 processAllPPMInFolder("temp", paramsVideo, "transformed", useGPU);
 
                 // Get the dimensions of the first transformed frame
@@ -177,6 +193,9 @@ int main() {
                 // Clean up temporary folders and files
                 fs::remove_all("temp");
                 fs::remove_all("transformed");
+                if (params.size() >= 6 && params[0] == "watermark") {
+                    std::remove("watermark.ppm");
+                }
             } else {
                 // Start the timer
                 auto startTime = std::chrono::high_resolution_clock::now();
