@@ -130,6 +130,13 @@ int main() {
                 int frameCount = static_cast<int>(video.get(cv::CAP_PROP_FRAME_COUNT));
                 double fps = video.get(cv::CAP_PROP_FPS);
 
+                std::string audioFile = "audio.wav";
+                    std::string extractAudioCommand = "ffmpeg -i " + inputFile + " -vn -acodec pcm_s16le -ar 44100 -ac 2 " + audioFile;
+                    int extractAudioResult = std::system(extractAudioCommand.c_str());
+                    if (extractAudioResult != 0) {
+                        std::cout << "Error: Failed to extract audio from the video." << std::endl;
+                        continue;
+                    }
                 // Start the timer
                 auto startTime = std::chrono::high_resolution_clock::now();
 
@@ -163,7 +170,7 @@ int main() {
                     paramsVideo[1] = "watermark.ppm";
                     cv::imwrite("watermark.ppm", watermarkImage);
                 }
-                processAllPPMInFolder("temp", paramsVideo, "transformed", useGPU);
+ processAllPPMInFolder("temp", paramsVideo, "transformed", useGPU);
 
                 // Get the dimensions of the first transformed frame
                 std::string firstTransformedFrameName = "transformed/frame_0_processed.ppm";
@@ -171,9 +178,9 @@ int main() {
                 int outputWidth = firstTransformedFrame.cols;
                 int outputHeight = firstTransformedFrame.rows;
 
-                // Create the output video file
-                std::string outputFile = params[2];
-                cv::VideoWriter outputVideo(outputFile, cv::VideoWriter::fourcc('m', 'p', '4', 'v'), fps, cv::Size(outputWidth, outputHeight));
+                // Create the output video file (without audio)
+                std::string outputFileNoAudio = "output_no_audio.mp4";
+                cv::VideoWriter outputVideo(outputFileNoAudio, cv::VideoWriter::fourcc('m', 'p', '4', 'v'), fps, cv::Size(outputWidth, outputHeight));
 
                 // Write the transformed frames to the output video
                 for (int i = 0; i < frameNumber; i++) {
@@ -185,6 +192,15 @@ int main() {
                 // Release the video writer
                 outputVideo.release();
 
+                // Combine the processed video with the original audio
+                std::string outputFile = params[2];
+                std::string combineCommand = "ffmpeg -i " + outputFileNoAudio + " -i " + audioFile + " -c:v copy -c:a aac -strict experimental " + outputFile;
+                int combineResult = std::system(combineCommand.c_str());
+                if (combineResult != 0) {
+                    std::cout << "Error: Failed to combine video and audio." << std::endl;
+                    continue;
+                }
+
                 // Stop the timer and calculate the processing time
                 auto endTime = std::chrono::high_resolution_clock::now();
                 auto duration = std::chrono::duration_cast<std::chrono::microseconds>(endTime - startTime);
@@ -193,6 +209,8 @@ int main() {
                 // Clean up temporary folders and files
                 fs::remove_all("temp");
                 fs::remove_all("transformed");
+                std::remove(audioFile.c_str());
+                std::remove(outputFileNoAudio.c_str());
                 if (params.size() >= 6 && params[0] == "watermark") {
                     std::remove("watermark.ppm");
                 }
